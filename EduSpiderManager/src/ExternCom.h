@@ -10,7 +10,6 @@
 
 #define MYSENDERID	0x0B
 
-
 #define RXTXSTACK_SIZE 16
 
 #define MAXMQTTBYTE	1000			// Nombre maximum d'octet par trame MQTT
@@ -20,7 +19,7 @@
 #define MAXPARAM	10			    // Nombre maximum de parametres pouvant etre recu par commande
 #define MAX_SHORT_ARRAY	100       	// Taille maximum du nombre d'octet contenu par tableau (!TABLEAU DE SHORT = 50*2 octets!)
 
-#define TOPIC_MGR  "ESMGR"			// Canal de négociation eduspider / Algoid, toujours online
+#define TOPIC_MGR  "ESMGR"			// Canal de nï¿½gociation eduspider / Algoid, toujours online
 
 // TYPE OF ALGOID MESSAGE
 #define T_MSGID	 0x01
@@ -64,6 +63,7 @@ unsigned char EndOfApp;
 ALGOID algoidMsgRXStack[RXTXSTACK_SIZE],algoidMsgTXStack[RXTXSTACK_SIZE];
 ALGOID algoidMsgTX, algoidMsgRX;
 
+char algoComInit(char *ClientID);							// Initialisation de la connexion au brocker MQTT
 // recupere le premier message disponible dans la pile
 char algo_getMessage(ALGOID destMsg, ALGOID *srcMsgStack);
 char algo_setMessage(ALGOID srcMsg, ALGOID *destMsgStack);

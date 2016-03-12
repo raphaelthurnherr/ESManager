@@ -9,7 +9,7 @@
 #define TASKNAME "[CONSOLE] "
 
 #include "console.h"
-#include "ALGOcom.h"
+#include "ExternCom.h"
 
 #include "stdio.h"
 #include "stdlib.h"

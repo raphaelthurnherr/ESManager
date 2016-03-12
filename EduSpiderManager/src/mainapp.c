@@ -1,7 +1,8 @@
 
 #define TASKNAME "[MAIN] "
-#define UDPPORT 12345  //The port on which to send data
+#define UDPPORT 53530  //The port on which to send data
 #define UDPBUFLEN 512	// Size of UDP Buffer
+#define CLIENID_PREFIX "ESMGR_"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,10 +18,13 @@
 //UDP
 #include<arpa/inet.h>
 
-#include "ALGOcom.h"
+#include "ExternCom.h"
 #include "console.h"
+#include "mainapp.h"
 
 unsigned char EndOfApp;
+ALGOID algoidNegociationRX;
+
 
 struct sockaddr_in si_other;
 static int s, slen=sizeof(si_other);
@@ -28,11 +32,18 @@ char buf[UDPBUFLEN];
 char message[UDPBUFLEN];
 int InitMultiTasking (void);
 
+char searchNegocMsg(void);
+
 void messageTest(void);
 void messageTest2(void);
 void messageNegoc(unsigned char cmd, char *str);
 void diplay_algoMessage(ALGOID msgStack);
 
+// Variable id^^ID du manager
+char myID[50]="ESMGR_";
+
+// Traitement de la commande de négociation avec le manager
+char processNegociation(ALGOID message);
 
 // Get MAC Adresse function
 char* getMACaddr(void);
@@ -50,11 +61,10 @@ void sendUDPHeartBit(void);
 // ***************************************************************************
 
 int main(void) {
-
 	int counter15s=0;
 
 	system("clear");
-	printf("\nESMANAGER - 05/02/2016\n");
+	printf("\nESMANAGER - 15/02/2016\n");
 	printf("------------------------------------------------\n\n");
 
 	printf ("# Demarrage du gestionnaire des taches...\n");
@@ -62,24 +72,30 @@ int main(void) {
 	// DEMARRAGE DES TACHES
 	InitMultiTasking();
 
+	// Creation du ID manager compose de l'adresse mac
+		char* myMACaddr;
+		myMACaddr=getMACaddr();
+		sprintf(&myID[6], "%02x%02x%02x%02x%02x%02x",myMACaddr[0], myMACaddr[1], myMACaddr[2], myMACaddr[3], myMACaddr[4],myMACaddr[5]);
+	    printf("%sSet MAC addresse as ID : %s\n",TASKNAME, myID);
+
+	// Préparation Connexion  UDP brodacast
     initUDP();
 
-
-	// ************   DEBUG 1er message non trait� correctement, a corriger. -> ENVOIE UN MESSAGE BIDON
-	/*
-	sleep(1);
-	messageNegoc(NEGOC_ADD_RX_CHANNEL, TOPIC_MGR);
-	algo_setMessage(algoidMsgTX, algoidMsgTXStack);
-*/
-	// ************   DEBUG 1er message non trait� correctement, a corriger.
-
+    // Préparation Connexion ALgoid sur Brocker local MQTT
+   algoComInit(myID);
 
 	// ---------------------------------------------------------------------------
 	// MAIN LOOP
 	// ---------------------------------------------------------------------------
 	while(!EndOfApp){
 
-		//
+		// RECHERCHE ET TRAITE D'EVENTUELS MESSAGE DE NEGOCIATION ALGOID
+		if(searchNegocMsg())
+			processNegociation(algoidNegociationRX);
+
+
+
+		// Envoie periodiquement un Heartbit UDP
 		if(counter15s++>=150){
 			sendUDPHeartBit();
 			counter15s=0;
@@ -106,7 +122,64 @@ int main(void) {
 		return (0);
 }
 
+// ---------------------------------------------------------------------------
+// RECHERCHE DE MESSAGE DE NEGOCIATION DANS LA PILE DE RECEPTION
+// ---------------------------------------------------------------------------
+char searchNegocMsg(void){
+	char j, prtFindNegocMsg=0;
+	char result=0;
 
+	// Recherche d'éventuels message de negociation recus sur topic "ESMGR"
+	for(prtFindNegocMsg=0;(prtFindNegocMsg<RXTXSTACK_SIZE); prtFindNegocMsg++){
+		if((algoidMsgRXStack[prtFindNegocMsg].msg_type==T_NEGOC) && (!strcmp(algoidMsgRXStack[prtFindNegocMsg].topic, TOPIC_MGR))){
+
+			// Récupère le message de la pile
+			algoidNegociationRX=algoidMsgRXStack[prtFindNegocMsg];
+
+			// Verification que le message est bien destiné à ce spider ([0] = destinataire du message, [1]= Expediteur)
+			if(!strcmp(algoidNegociationRX.msg_string_array[0], myID)){
+				result =1;
+			}
+			else
+			{
+				printf("\n MESSAGE NEGOCIATION NON TRAITE, MAUVAIS DESTINATAIRE \n");
+				result =0;
+			}
+
+			// Liberation de l'espace dans la pile
+			for(j=prtFindNegocMsg;j<RXTXSTACK_SIZE-1;j++)
+				algoidMsgRXStack[j]=algoidMsgRXStack[j+1];
+
+		}
+	}
+	return result;
+}
+
+// ---------------------------------------------------------------------------
+// TRAITEMENT DU MESSAGE DE NEGOCIATION AVEC LE MANAGER
+// ---------------------------------------------------------------------------
+char processNegociation(ALGOID message){
+
+	printf("\n%sMessage negociation en traitement \n", TASKNAME);
+	switch(message.msg_type_value){
+		case NEGOC_ES_RENAME : printf("\nrename ES\n"); break;
+		case NEGOC_MGR_JOIN : printf("\njoin group\n"); break;
+		case NEGOC_MGR_LEAVE : printf("\nleave group\n"); break;
+		case NEGOC_TX_CHANNEL : algoSetTXChannel(message.msg_string_array[1]);
+									break;
+		case NEGOC_ADD_RX_CHANNEL : algoAddRXChannel(message.msg_string_array[1]);
+									printf("\n - Ajout canal d écoute sur topic: %s", message.msg_string_array[1]);
+									break;
+		case NEGOC_REM_RX_CHANNEL : if(strcmp(message.msg_string_array[1], TOPIC_MGR)){			 // Ne desincrit pas le topic manager
+										algoRemoveRXChannel(message.msg_string_array[1]);
+										printf("\n - Suppression canal d'écoute: %s", message.msg_string_array[1]);
+									}else printf(" - Suppression canal d'écoute %s impossible", message.msg_string_array[1]);
+									break;
+		default : break;
+	}
+
+	return 0;
+}
 
 // ***************************************************************************
 // ---------------------------------------------------------------------------
@@ -142,9 +215,6 @@ return(1);
 void messageTest2(void){
 	 // TEST - CHARGEMENT DE LA STRUCTURE DU MESSAGE ALGOID
 				strcpy(algoidMsgTX.topic, "MQ2ES12");
-
-				//algoidMsgTX.msg_id = rand()&0x00FFFFFF;
-				//algoidMsgTX.msg_id |= HOSTSENDERID<<24;
 
 				algoidMsgTX.msg_type=T_ERROR;
 				algoidMsgTX.msg_type_value=0x03;
@@ -196,7 +266,7 @@ unsigned char i;
 				algoidMsgTX.msg_param_array[4][i]=rand()&0x0000FFFF;
 
 				algoidMsgTX.msg_param[5]=PCA_1;
-				strcpy(algoidMsgTX.msg_string_array[5], "SALUT COCOLET, J'ESP�RE QUE TU VAS BIEN ALLER");
+				strcpy(algoidMsgTX.msg_string_array[5], "SALUT COCOLET, J'ESP�RE QUE TU VAS BIEN ALLER");
 				algoidMsgTX.msg_param_count[5]=strlen(algoidMsgTX.msg_string_array[5]);
 				algoidMsgTX.msg_param[6]=0;
 	// TEST - FIN CHARGEMENT DE LA STRUCTURE DU MESSAGE ALGOID
@@ -264,7 +334,7 @@ void messageNegoc(unsigned char cmd, char *str){
 		}
 
 		// -------------------------------------------------------------------
-		//GETMACADDR, r�cuperation de l'adresse MAC sur ETH0
+		//GETMACADDR, r�cuperation de l'adresse MAC sur ETH0
 		// -------------------------------------------------------------------
 		char* getMACaddr(void){
 		    int fd;
